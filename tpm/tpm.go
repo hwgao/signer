@@ -90,9 +90,9 @@ func (t TPM) TLSCertificate() tls.Certificate {
 	x509Certificate = *pub
 	var privKey crypto.PrivateKey = t
 	return tls.Certificate{
-		PrivateKey:  privKey,
-		Leaf:        &x509Certificate,
-		Certificate: [][]byte{x509Certificate.Raw},
+		PrivateKey:                   privKey,
+		Certificate:                  [][]byte{x509Certificate.Raw},
+		SupportedSignatureAlgorithms: []tls.SignatureScheme{tls.PKCS1WithSHA256},
 	}
 }
 
@@ -127,7 +127,6 @@ func (t TPM) Public() crypto.PublicKey {
 		defer rwc.Close()
 
 		var handle tpmutil.Handle
-		defer tpm2.FlushContext(rwc, handle)
 		if t.TpmHandleFile != "" {
 			log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
 			pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
@@ -166,7 +165,6 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	defer rwc.Close()
 
 	var handle tpmutil.Handle
-	defer tpm2.FlushContext(rwc, handle)
 	if t.TpmHandleFile != "" {
 		log.Printf("     ContextLoad (%s) ========", t.TpmHandleFile)
 		pHBytes, err := ioutil.ReadFile(t.TpmHandleFile)
@@ -185,7 +183,7 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	if len(digest) != hash.Size() {
 		return nil, fmt.Errorf("sal: Sign: Digest length doesn't match passed crypto algorithm")
 	}
-	sig, err := tpm2.Sign(rwc, handle, "", digest, &tpm2.SigScheme{
+	sig, err := tpm2.Sign(rwc, handle, "", digest, nil, &tpm2.SigScheme{
 		Alg:  tpm2.AlgRSASSA,
 		Hash: tpm2.AlgSHA256,
 	})
