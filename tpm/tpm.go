@@ -14,10 +14,12 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"os"
 	"sync"
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpmutil"
+	"github.com/google/go-tpm/tpmutil/mssim"
 )
 
 const ()
@@ -43,32 +45,42 @@ type TPM struct {
 	refreshMutex  sync.Mutex
 }
 
-func NewTPMCrypto(conf *TPM) (TPM, error) {
+func openTPM(device string) (io.ReadWriteCloser, error) {
+	if _, err := os.Stat(device); err == nil {
+		// Use device tpm
+		return tpm2.OpenTPM(device)
+	}
+
+	// Use tpm simulator
+	return mssim.Open(mssim.Config{})
+}
+
+func NewTPMCrypto(conf *TPM) (*TPM, error) {
 
 	var err error
-	rwc, err := tpm2.OpenTPM(conf.TpmDevice)
+	rwc, err := openTPM(conf.TpmDevice)
 	if err != nil {
-		return TPM{}, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
+		return nil, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
 	defer rwc.Close()
 
 	if conf.TpmHandleFile != "" && conf.TpmHandle != 0 {
-		return TPM{}, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
+		return nil, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
 	}
 
 	if conf.ExtTLSConfig != nil {
 		if len(conf.ExtTLSConfig.Certificates) > 0 {
-			return TPM{}, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
+			return nil, fmt.Errorf("Certificates value in ExtTLSConfig Ignored")
 		}
 
 		if len(conf.ExtTLSConfig.CipherSuites) > 0 {
-			return TPM{}, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
+			return nil, fmt.Errorf("CipherSuites value in ExtTLSConfig Ignored")
 		}
 	}
-	return *conf, nil
+	return conf, nil
 }
 
-func (t TPM) TLSCertificate() tls.Certificate {
+func (t *TPM) TLSCertificate() tls.Certificate {
 
 	if t.PublicCertFile == "" {
 		log.Fatalf("Public X509 certificate not specified")
@@ -96,7 +108,7 @@ func (t TPM) TLSCertificate() tls.Certificate {
 	}
 }
 
-func (t TPM) TLSConfig() *tls.Config {
+func (t *TPM) TLSConfig() *tls.Config {
 
 	return &tls.Config{
 		Certificates: []tls.Certificate{t.TLSCertificate()},
@@ -115,12 +127,12 @@ func (t TPM) TLSConfig() *tls.Config {
 	}
 }
 
-func (t TPM) Public() crypto.PublicKey {
+func (t *TPM) Public() crypto.PublicKey {
 	if publicKey == nil {
 		t.refreshMutex.Lock()
 		defer t.refreshMutex.Unlock()
 
-		rwc, err := tpm2.OpenTPM(t.TpmDevice)
+		rwc, err := openTPM(t.TpmDevice)
 		if err != nil {
 			return err
 		}
@@ -154,11 +166,11 @@ func (t TPM) Public() crypto.PublicKey {
 	return publicKey
 }
 
-func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+func (t *TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
+	rwc, err := openTPM(t.TpmDevice)
 	if err != nil {
 		return []byte(""), err
 	}
@@ -193,11 +205,11 @@ func (t TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, e
 	return []byte(sig.RSA.Signature), nil
 }
 
-func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
+func (t *TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]byte, error) {
 	t.refreshMutex.Lock()
 	defer t.refreshMutex.Unlock()
 
-	rwc, err := tpm2.OpenTPM(t.TpmDevice)
+	rwc, err := openTPM(t.TpmDevice)
 	if err != nil {
 		return []byte(""), err
 	}
@@ -229,6 +241,6 @@ func (t TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]b
 	return dec, nil
 }
 
-func (t TPM) Close() error {
+func (t *TPM) Close() error {
 	return rwc.Close()
 }
