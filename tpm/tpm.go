@@ -52,7 +52,12 @@ func openTPM(device string) (io.ReadWriteCloser, error) {
 	}
 
 	// Use tpm simulator
-	return mssim.Open(mssim.Config{})
+	conn, err := mssim.Open(mssim.Config{})
+	if err == nil {
+		tpm2.Startup(conn, tpm2.StartupClear)
+	}
+
+	return conn, err
 }
 
 func NewTPMCrypto(conf *TPM) (*TPM, error) {
