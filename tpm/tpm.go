@@ -60,6 +60,15 @@ func openTPM(device string) (io.ReadWriteCloser, error) {
 	return conn, err
 }
 
+func closeTPM(rwc io.ReadWriteCloser) error {
+	// TPM2_Shutdown must be the last command the TPM receives. We call
+	// Shutdown with StartupClear to simulate a full reboot.
+	if err := tpm2.Shutdown(rwc, tpm2.StartupClear); err != nil {
+		return fmt.Errorf("Shutdown: %w", err)
+	}
+	return rwc.Close()
+}
+
 func NewTPMCrypto(conf *TPM) (*TPM, error) {
 
 	var err error
@@ -67,7 +76,7 @@ func NewTPMCrypto(conf *TPM) (*TPM, error) {
 	if err != nil {
 		return nil, fmt.Errorf("google: Public: Unable to Open TPM: %v", err)
 	}
-	defer rwc.Close()
+	defer closeTPM(rwc)
 
 	if conf.TpmHandleFile != "" && conf.TpmHandle != 0 {
 		return nil, fmt.Errorf("At most one of TpmHandle or TpmHandleFile must be specified")
@@ -141,7 +150,7 @@ func (t *TPM) Public() crypto.PublicKey {
 		if err != nil {
 			return err
 		}
-		defer rwc.Close()
+		defer closeTPM(rwc)
 
 		var handle tpmutil.Handle
 		if t.TpmHandleFile != "" {
@@ -179,7 +188,7 @@ func (t *TPM) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, 
 	if err != nil {
 		return []byte(""), err
 	}
-	defer rwc.Close()
+	defer closeTPM(rwc)
 
 	var handle tpmutil.Handle
 	if t.TpmHandleFile != "" {
@@ -218,7 +227,7 @@ func (t *TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]
 	if err != nil {
 		return []byte(""), err
 	}
-	defer rwc.Close()
+	defer closeTPM(rwc)
 
 	var handle tpmutil.Handle
 	defer tpm2.FlushContext(rwc, handle)
@@ -247,5 +256,5 @@ func (t *TPM) Decrypt(rand io.Reader, msg []byte, opts crypto.DecrypterOpts) ([]
 }
 
 func (t *TPM) Close() error {
-	return rwc.Close()
+	return closeTPM(rwc)
 }
